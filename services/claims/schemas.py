@@ -3,7 +3,7 @@
 from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 from typing import List, Optional
-from common.enums import ClaimStatus, PayerType, DenialReason
+from common.enums import ClaimStatus, PayerType, DenialReason, EventType, DenialCategory, RecommendedAction, AgentDecision
 
 
 class ClaimCreate(BaseModel):
@@ -79,4 +79,72 @@ class StateTransitionRequest(BaseModel):
 
     target_status: ClaimStatus
     reason: Optional[str] = None
+
+
+class ClaimEventResponse(BaseModel):
+    """Schema for claim event response."""
+
+    id: int
+    claim_id: int
+    event_type: str
+    event_data: Optional[dict]
+    description: Optional[str]
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DenialEventResponse(BaseModel):
+    """Schema for denial event response."""
+
+    id: int
+    claim_id: int
+    payer_id: str
+    payer_type: str
+    denial_reason_code: str
+    denial_reason_text: str
+    denial_category: Optional[str]
+    raw_payer_payload: Optional[dict]
+    recommended_action: Optional[str]
+    classification_confidence: Optional[float]
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DenialEventCreate(BaseModel):
+    """Schema for creating a denial event."""
+
+    payer_id: str
+    payer_type: str
+    denial_reason_code: str
+    denial_reason_text: str
+    raw_payer_payload: Optional[dict] = None
+
+
+class AgentDecisionResponse(BaseModel):
+    """Schema for agent decision response."""
+
+    id: int
+    claim_id: int
+    decision: str
+    confidence: float
+    rationale: str
+    missing_info: Optional[List[str]]
+    denial_category: Optional[str]
+    rule_based_recommendation: Optional[str]
+    was_executed: str
+    requires_human_review: str
+    human_override: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class HumanOverrideRequest(BaseModel):
+    """Schema for human override request."""
+
+    override_action: AgentDecision
+    reviewer: str = Field(..., min_length=1)
+    notes: Optional[str] = None
 

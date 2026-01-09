@@ -1,7 +1,7 @@
 """Denial reason classification engine."""
 
 from typing import Dict, NamedTuple, Optional
-from common.enums import DenialReason, PayerType
+from common.enums import DenialReason, PayerType, DenialCategory, RecommendedAction
 import re
 import logging
 
@@ -12,12 +12,26 @@ class DenialClassification(NamedTuple):
     """Classification result for a denial."""
 
     reason: DenialReason
+    category: DenialCategory  # Normalized category for agent reasoning
     confidence: float  # 0.0 to 1.0
     details: str
 
 
 class DenialClassifier:
     """Classifies denial reasons from payer codes and messages."""
+
+    # Map DenialReason to normalized DenialCategory
+    REASON_TO_CATEGORY = {
+        DenialReason.COVERAGE_TERMINATED: DenialCategory.ELIGIBILITY,
+        DenialReason.COB_REQUIRED: DenialCategory.ELIGIBILITY,
+        DenialReason.INVALID_PROVIDER: DenialCategory.ELIGIBILITY,
+        DenialReason.INVALID_CPT_CODE: DenialCategory.CODING_ERROR,
+        DenialReason.INVALID_ICD_CODE: DenialCategory.CODING_ERROR,
+        DenialReason.MISSING_AUTHORIZATION: DenialCategory.PRIOR_AUTH_MISSING,
+        DenialReason.TIMELY_FILING: DenialCategory.TIMELY_FILING,
+        DenialReason.DUPLICATE_CLAIM: DenialCategory.DUPLICATE,
+        DenialReason.UNKNOWN: DenialCategory.UNKNOWN,
+    }
 
     # Common denial code patterns
     DENIAL_PATTERNS = {
@@ -91,8 +105,10 @@ class DenialClassifier:
                         best_confidence = confidence
 
         if best_match:
+            category = DenialClassifier.REASON_TO_CATEGORY.get(best_match, DenialCategory.UNKNOWN)
             return DenialClassification(
                 reason=best_match,
+                category=category,
                 confidence=best_confidence,
                 details=f"Classified from message: {denial_message[:200]}",
             )
@@ -100,6 +116,7 @@ class DenialClassifier:
         # Default to UNKNOWN if no pattern matches
         return DenialClassification(
             reason=DenialReason.UNKNOWN,
+            category=DenialCategory.UNKNOWN,
             confidence=0.5,
             details=f"Unable to classify denial message: {denial_message[:200]}",
         )
@@ -127,14 +144,18 @@ class DenialClassifier:
         }
 
         if code_upper in code_mapping:
+            reason = code_mapping[code_upper]
+            category = DenialClassifier.REASON_TO_CATEGORY.get(reason, DenialCategory.UNKNOWN)
             return DenialClassification(
-                reason=code_mapping[code_upper],
+                reason=reason,
+                category=category,
                 confidence=0.9,
                 details=f"Classified from denial code: {denial_code}",
             )
 
         return DenialClassification(
             reason=DenialReason.UNKNOWN,
+            category=DenialCategory.UNKNOWN,
             confidence=0.3,
             details=f"Unknown denial code: {denial_code}",
         )
@@ -189,9 +210,13 @@ def classify_denial(
         denial_code, denial_message, claim_data
     )
     if claim_specific_reason:
+        category = DenialClassifier.REASON_TO_CATEGORY.get(claim_specific_reason, DenialCategory.UNKNOWN)
         classifications.append(
             DenialClassification(
-                reason=claim_specific_reason, confidence=0.6, details="Classified from claim data"
+                reason=claim_specific_reason,
+                category=category,
+                confidence=0.6,
+                details="Classified from claim data"
             )
         )
 
@@ -204,4 +229,34 @@ def classify_denial(
 
     # If all are UNKNOWN, return the highest confidence one
     return max(classifications, key=lambda c: c.confidence)
+
+
+def get_recommended_action(denial_category: DenialCategory) -> RecommendedAction:
+    """
+    Get rule-based recommended action for a denial category.
+    
+    This is the deterministic baseline that agents can override.
+    
+    Rules:
+    - ELIGIBILITY → WRITE_OFF (usually can't fix eligibility issues)
+    - CODING_ERROR → RESUBMIT (fix codes and resubmit)
+    - MEDICAL_NECESSITY → APPEAL (requires clinical documentation)
+    - PRIOR_AUTH_MISSING → REQUEST_AUTH (obtain authorization)
+    - TIMELY_FILING → WRITE_OFF (can't fix late filing)
+    - COVERAGE_EXHAUSTED → WRITE_OFF or COLLECT_PATIENT
+    - DUPLICATE → NO_ACTION or investigate
+    """
+    action_mapping = {
+        DenialCategory.ELIGIBILITY: RecommendedAction.WRITE_OFF,
+        DenialCategory.CODING_ERROR: RecommendedAction.RESUBMIT,
+        DenialCategory.MEDICAL_NECESSITY: RecommendedAction.APPEAL,
+        DenialCategory.PRIOR_AUTH_MISSING: RecommendedAction.REQUEST_AUTH,
+        DenialCategory.TIMELY_FILING: RecommendedAction.WRITE_OFF,
+        DenialCategory.COVERAGE_EXHAUSTED: RecommendedAction.WRITE_OFF,
+        DenialCategory.DUPLICATE: RecommendedAction.NO_ACTION,
+        DenialCategory.DOCUMENTATION: RecommendedAction.APPEAL,
+        DenialCategory.UNKNOWN: RecommendedAction.NO_ACTION,
+    }
+    
+    return action_mapping.get(denial_category, RecommendedAction.NO_ACTION)
 

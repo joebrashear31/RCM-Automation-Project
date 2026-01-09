@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from common.db import engine, Base
 from services.claims import routes as claims_routes
+from services.claims import analytics_routes
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +34,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(claims_routes.router)
+app.include_router(analytics_routes.router)
 
 
 @app.get("/")

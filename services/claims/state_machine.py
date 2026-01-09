@@ -18,14 +18,37 @@ class ClaimStateMachine:
 
     # Define valid transitions as (from_status, to_status) tuples
     VALID_TRANSITIONS = [
+        # Initial validation flow
         (ClaimStatus.CREATED, ClaimStatus.VALIDATED),
         (ClaimStatus.VALIDATED, ClaimStatus.SUBMITTED),
+        
+        # Submission outcomes
+        (ClaimStatus.SUBMITTED, ClaimStatus.REJECTED),  # Pre-adjudication rejection
         (ClaimStatus.SUBMITTED, ClaimStatus.ACCEPTED),
-        (ClaimStatus.SUBMITTED, ClaimStatus.DENIED),
-        (ClaimStatus.ACCEPTED, ClaimStatus.PAID),
+        (ClaimStatus.SUBMITTED, ClaimStatus.DENIED),  # Post-adjudication denial
+        
+        # Rejection handling
+        (ClaimStatus.REJECTED, ClaimStatus.RESUBMITTED),
+        (ClaimStatus.REJECTED, ClaimStatus.WRITE_OFF),
+        
+        # Denial handling
+        (ClaimStatus.DENIED, ClaimStatus.APPEAL_PENDING),
         (ClaimStatus.DENIED, ClaimStatus.RESUBMITTED),
+        (ClaimStatus.DENIED, ClaimStatus.WRITE_OFF),
+        
+        # Appeal flow
+        (ClaimStatus.APPEAL_PENDING, ClaimStatus.ACCEPTED),
+        (ClaimStatus.APPEAL_PENDING, ClaimStatus.DENIED),
+        (ClaimStatus.APPEAL_PENDING, ClaimStatus.WRITE_OFF),
+        
+        # Resubmission flow
         (ClaimStatus.RESUBMITTED, ClaimStatus.ACCEPTED),
         (ClaimStatus.RESUBMITTED, ClaimStatus.DENIED),
+        (ClaimStatus.RESUBMITTED, ClaimStatus.REJECTED),
+        
+        # Payment and final states
+        (ClaimStatus.ACCEPTED, ClaimStatus.PAID),
+        (ClaimStatus.ACCEPTED, ClaimStatus.WRITE_OFF),  # In case of partial payment issues
     ]
 
     @classmethod
@@ -89,7 +112,7 @@ class ClaimStateMachine:
         now = datetime.utcnow()
         if target_status == ClaimStatus.SUBMITTED:
             claim.submitted_at = now
-        elif target_status in [ClaimStatus.ACCEPTED, ClaimStatus.DENIED]:
+        elif target_status in [ClaimStatus.ACCEPTED, ClaimStatus.DENIED, ClaimStatus.REJECTED]:
             claim.responded_at = now
         elif target_status == ClaimStatus.PAID:
             claim.paid_at = now
